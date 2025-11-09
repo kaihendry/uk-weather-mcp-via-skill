@@ -1,5 +1,7 @@
 # UK Weather MCP Server
 
+[![Test MCP Server](https://github.com/kaihendry/uk-weather-mcp-via-skill/actions/workflows/test-mcp.yml/badge.svg)](https://github.com/kaihendry/uk-weather-mcp-via-skill/actions/workflows/test-mcp.yml)
+
 A Model Context Protocol (MCP) server that provides access to UK Met Office Weather DataHub API, enabling LLMs to fetch real-time weather forecasts for any global location.
 
 ## Features
@@ -205,14 +207,21 @@ Responses are automatically truncated if they exceed 25,000 characters, with a c
 
 ```
 uk-weather-mcp/
+├── .github/
+│   ├── workflows/
+│   │   └── test-mcp.yml   # GitHub Actions CI/CD workflow
+│   └── SETUP.md           # GitHub Actions setup guide
 ├── uk_weather_mcp.py      # Main MCP server implementation
 ├── pyproject.toml         # Project configuration and dependencies
 ├── README.md              # This file
 ├── .env.example           # Example environment variables
+├── test_examples.md       # Test scenarios and examples
 └── CLAUDE.md              # Project instructions
 ```
 
 ### Testing
+
+#### Local Testing
 
 Run the server in development mode:
 
@@ -221,6 +230,26 @@ uv run uk_weather_mcp.py
 ```
 
 The server will start and wait for MCP protocol messages over stdio.
+
+#### Automated Testing with GitHub Actions
+
+The repository includes a comprehensive GitHub Actions workflow that automatically tests:
+
+- ✅ Python syntax validation
+- ✅ Server initialization
+- ✅ All three forecast tools (hourly, 3-hourly, daily)
+- ✅ Both output formats (Markdown and JSON)
+- ✅ Error handling for invalid inputs
+- ✅ Multiple global locations
+
+**Setup Instructions:**
+
+1. Add your Met Office API key as a GitHub secret named `MET_OFFICE_API_KEY`
+2. See [.github/SETUP.md](.github/SETUP.md) for detailed setup instructions
+3. The workflow runs automatically on push and pull requests
+4. Manual runs can be triggered from the Actions tab
+
+The workflow uses `uv` for dependency management and runs on Ubuntu with Python 3.12.
 
 ### Code Quality
 

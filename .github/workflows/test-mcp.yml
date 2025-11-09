@@ -112,10 +112,11 @@ jobs:
             # Verify it's valid JSON
             import json
             try:
-                json.loads(result)
+                parsed = json.loads(result)
                 print("   ✅ JSON format works")
-            except json.JSONDecodeError:
-                print("   ❌ Failed: Invalid JSON returned")
+            except json.JSONDecodeError as e:
+                print(f"   ❌ Failed: Invalid JSON returned - {e}")
+                print(f"   First 500 chars of result: {result[:500]}")
                 return False
 
             print("\n✅ All tests passed!")

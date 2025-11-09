@@ -17,8 +17,6 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@v4
-      with:
-        enable-cache: true
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -43,7 +41,7 @@ jobs:
         # We use a timeout since MCP servers run indefinitely
         timeout 5s uv run uk_weather_mcp.py || exit_code=$?
         # Exit code 124 means timeout (expected), anything else is an error
-        if [ $exit_code -ne 124 ] && [ $exit_code -ne 0 ]; then
+        if [ "${exit_code}" -ne 124 ] && [ "${exit_code}" -ne 0 ]; then
           echo "Server failed to start properly"
           exit 1
         fi
@@ -258,18 +256,20 @@ jobs:
     - name: Generate test report
       if: always()
       run: |
-        echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ MCP server tests completed" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Tests Run" >> $GITHUB_STEP_SUMMARY
-        echo "- Python syntax validation" >> $GITHUB_STEP_SUMMARY
-        echo "- Server initialization" >> $GITHUB_STEP_SUMMARY
-        echo "- Tool functionality (all 3 forecast types)" >> $GITHUB_STEP_SUMMARY
-        echo "- Error handling (invalid inputs)" >> $GITHUB_STEP_SUMMARY
-        echo "- Multiple global locations" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Environment" >> $GITHUB_STEP_SUMMARY
-        echo "- Python: 3.12" >> $GITHUB_STEP_SUMMARY
-        echo "- Runner: ubuntu-latest" >> $GITHUB_STEP_SUMMARY
-        echo "- Package Manager: uv" >> $GITHUB_STEP_SUMMARY
+        {
+          echo "## Test Summary"
+          echo ""
+          echo "✅ MCP server tests completed"
+          echo ""
+          echo "### Tests Run"
+          echo "- Python syntax validation"
+          echo "- Server initialization"
+          echo "- Tool functionality (all 3 forecast types)"
+          echo "- Error handling (invalid inputs)"
+          echo "- Multiple global locations"
+          echo ""
+          echo "### Environment"
+          echo "- Python: 3.12"
+          echo "- Runner: ubuntu-latest"
+          echo "- Package Manager: uv"
+        } >> "$GITHUB_STEP_SUMMARY"

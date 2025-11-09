@@ -2,256 +2,249 @@ name: Test MCP Server
 
 on:
   push:
-    branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch: # Allow manual triggering
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
+      - name: Install dependencies
+        run: uv sync
 
-    - name: Install dependencies
-      run: uv sync
+      - name: Check Python syntax
+        run: uv run python -m py_compile uk_weather_mcp.py
 
-    - name: Check Python syntax
-      run: uv run python -m py_compile uk_weather_mcp.py
+      - name: Run type checking (optional)
+        run: |
+          uv pip install mypy types-httpx
+          uv run mypy uk_weather_mcp.py --ignore-missing-imports || true
+        continue-on-error: true
 
-    - name: Run type checking (optional)
-      run: |
-        uv pip install mypy types-httpx
-        uv run mypy uk_weather_mcp.py --ignore-missing-imports || true
-      continue-on-error: true
+      - name: Test MCP server initialization
+        run: |
+          # Test that the server can start and respond to basic MCP protocol
+          # We use a timeout since MCP servers run indefinitely
+          timeout 5s uv run uk_weather_mcp.py || exit_code=$?
+          # Exit code 124 means timeout (expected), anything else is an error
+          if [ "${exit_code}" -ne 124 ] && [ "${exit_code}" -ne 0 ]; then
+            echo "Server failed to start properly"
+            exit 1
+          fi
+          echo "Server starts successfully"
 
-    - name: Test MCP server initialization
-      run: |
-        # Test that the server can start and respond to basic MCP protocol
-        # We use a timeout since MCP servers run indefinitely
-        timeout 5s uv run uk_weather_mcp.py || exit_code=$?
-        # Exit code 124 means timeout (expected), anything else is an error
-        if [ "${exit_code}" -ne 124 ] && [ "${exit_code}" -ne 0 ]; then
-          echo "Server failed to start properly"
-          exit 1
-        fi
-        echo "Server starts successfully"
+      - name: Test tool functionality with API
+        env:
+          MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
+        run: |
+          # Create a simple test script to verify tools work
+          cat > test_tools.py << 'EOF'
+          import asyncio
+          import sys
+          from uk_weather_mcp import (
+              uk_weather_get_hourly_forecast,
+              uk_weather_get_three_hourly_forecast,
+              uk_weather_get_daily_forecast,
+              WeatherForecastInput,
+              ResponseFormat
+          )
 
-    - name: Test tool functionality with API
-      env:
-        MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
-      run: |
-        # Create a simple test script to verify tools work
-        cat > test_tools.py << 'EOF'
-        import asyncio
-        import sys
-        from uk_weather_mcp import (
-            uk_weather_get_hourly_forecast,
-            uk_weather_get_three_hourly_forecast,
-            uk_weather_get_daily_forecast,
-            WeatherForecastInput,
-            ResponseFormat
-        )
+          async def test_tools():
+              """Test that all tools can be called successfully."""
+              print("Testing UK Weather MCP tools...")
 
-        async def test_tools():
-            """Test that all tools can be called successfully."""
-            print("Testing UK Weather MCP tools...")
+              # Test coordinates (London)
+              test_input = WeatherForecastInput(
+                  latitude=51.5074,
+                  longitude=-0.1278,
+                  response_format=ResponseFormat.MARKDOWN
+              )
 
-            # Test coordinates (London)
-            test_input = WeatherForecastInput(
-                latitude=51.5074,
-                longitude=-0.1278,
-                response_format=ResponseFormat.MARKDOWN
-            )
+              # Test hourly forecast
+              print("\n1. Testing hourly forecast...")
+              result = await uk_weather_get_hourly_forecast(test_input)
+              if result.startswith("Error:"):
+                  print(f"   ❌ Failed: {result}")
+                  return False
+              print("   ✅ Hourly forecast works")
 
-            # Test hourly forecast
-            print("\n1. Testing hourly forecast...")
-            result = await uk_weather_get_hourly_forecast(test_input)
-            if result.startswith("Error:"):
-                print(f"   ❌ Failed: {result}")
-                return False
-            print("   ✅ Hourly forecast works")
+              # Test 3-hourly forecast
+              print("\n2. Testing 3-hourly forecast...")
+              result = await uk_weather_get_three_hourly_forecast(test_input)
+              if result.startswith("Error:"):
+                  print(f"   ❌ Failed: {result}")
+                  return False
+              print("   ✅ 3-hourly forecast works")
 
-            # Test 3-hourly forecast
-            print("\n2. Testing 3-hourly forecast...")
-            result = await uk_weather_get_three_hourly_forecast(test_input)
-            if result.startswith("Error:"):
-                print(f"   ❌ Failed: {result}")
-                return False
-            print("   ✅ 3-hourly forecast works")
+              # Test daily forecast
+              print("\n3. Testing daily forecast...")
+              result = await uk_weather_get_daily_forecast(test_input)
+              if result.startswith("Error:"):
+                  print(f"   ❌ Failed: {result}")
+                  return False
+              print("   ✅ Daily forecast works")
 
-            # Test daily forecast
-            print("\n3. Testing daily forecast...")
-            result = await uk_weather_get_daily_forecast(test_input)
-            if result.startswith("Error:"):
-                print(f"   ❌ Failed: {result}")
-                return False
-            print("   ✅ Daily forecast works")
+              # Test JSON format
+              print("\n4. Testing JSON format...")
+              json_input = WeatherForecastInput(
+                  latitude=51.5074,
+                  longitude=-0.1278,
+                  response_format=ResponseFormat.JSON
+              )
+              result = await uk_weather_get_hourly_forecast(json_input)
+              if result.startswith("Error:"):
+                  print(f"   ❌ Failed: {result}")
+                  return False
+              # Verify it's valid JSON
+              import json
+              try:
+                  parsed = json.loads(result)
+                  print("   ✅ JSON format works")
+              except json.JSONDecodeError as e:
+                  print(f"   ❌ Failed: Invalid JSON returned - {e}")
+                  print(f"   First 500 chars of result: {result[:500]}")
+                  return False
 
-            # Test JSON format
-            print("\n4. Testing JSON format...")
-            json_input = WeatherForecastInput(
-                latitude=51.5074,
-                longitude=-0.1278,
-                response_format=ResponseFormat.JSON
-            )
-            result = await uk_weather_get_hourly_forecast(json_input)
-            if result.startswith("Error:"):
-                print(f"   ❌ Failed: {result}")
-                return False
-            # Verify it's valid JSON
-            import json
-            try:
-                parsed = json.loads(result)
-                print("   ✅ JSON format works")
-            except json.JSONDecodeError as e:
-                print(f"   ❌ Failed: Invalid JSON returned - {e}")
-                print(f"   First 500 chars of result: {result[:500]}")
-                return False
+              print("\n✅ All tests passed!")
+              return True
 
-            print("\n✅ All tests passed!")
-            return True
+          if __name__ == "__main__":
+              success = asyncio.run(test_tools())
+              sys.exit(0 if success else 1)
+          EOF
 
-        if __name__ == "__main__":
-            success = asyncio.run(test_tools())
-            sys.exit(0 if success else 1)
-        EOF
+          uv run python test_tools.py
 
-        uv run python test_tools.py
+      - name: Test error handling
+        env:
+          MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
+        run: |
+          # Test that invalid inputs are handled correctly
+          cat > test_errors.py << 'EOF'
+          import asyncio
+          import sys
+          from uk_weather_mcp import WeatherForecastInput, ResponseFormat
+          from pydantic import ValidationError
 
-    - name: Test error handling
-      env:
-        MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
-      run: |
-        # Test that invalid inputs are handled correctly
-        cat > test_errors.py << 'EOF'
-        import asyncio
-        import sys
-        from uk_weather_mcp import WeatherForecastInput, ResponseFormat
-        from pydantic import ValidationError
+          async def test_error_handling():
+              """Test that invalid inputs are properly handled."""
+              print("Testing error handling...")
 
-        async def test_error_handling():
-            """Test that invalid inputs are properly handled."""
-            print("Testing error handling...")
+              # Test 1: Invalid latitude (out of range)
+              print("\n1. Testing invalid latitude...")
+              try:
+                  invalid_input = WeatherForecastInput(
+                      latitude=100.0,  # Invalid: > 90
+                      longitude=0.0,
+                      response_format=ResponseFormat.MARKDOWN
+                  )
+                  print("   ❌ Failed: Should have raised ValidationError")
+                  return False
+              except ValidationError as e:
+                  print(f"   ✅ Correctly rejected invalid latitude")
 
-            # Test 1: Invalid latitude (out of range)
-            print("\n1. Testing invalid latitude...")
-            try:
-                invalid_input = WeatherForecastInput(
-                    latitude=100.0,  # Invalid: > 90
-                    longitude=0.0,
-                    response_format=ResponseFormat.MARKDOWN
-                )
-                print("   ❌ Failed: Should have raised ValidationError")
-                return False
-            except ValidationError as e:
-                print(f"   ✅ Correctly rejected invalid latitude")
+              # Test 2: Invalid longitude (out of range)
+              print("\n2. Testing invalid longitude...")
+              try:
+                  invalid_input = WeatherForecastInput(
+                      latitude=0.0,
+                      longitude=200.0,  # Invalid: > 180
+                      response_format=ResponseFormat.MARKDOWN
+                  )
+                  print("   ❌ Failed: Should have raised ValidationError")
+                  return False
+              except ValidationError as e:
+                  print(f"   ✅ Correctly rejected invalid longitude")
 
-            # Test 2: Invalid longitude (out of range)
-            print("\n2. Testing invalid longitude...")
-            try:
-                invalid_input = WeatherForecastInput(
-                    latitude=0.0,
-                    longitude=200.0,  # Invalid: > 180
-                    response_format=ResponseFormat.MARKDOWN
-                )
-                print("   ❌ Failed: Should have raised ValidationError")
-                return False
-            except ValidationError as e:
-                print(f"   ✅ Correctly rejected invalid longitude")
+              # Test 3: API key requirement is checked at module load time
+              # so we can't effectively test it here without reloading the module
+              print("\n3. API key validation happens at startup")
+              print("   ✅ API key validation works (tested at module import)")
 
-            # Test 3: API key requirement is checked at module load time
-            # so we can't effectively test it here without reloading the module
-            print("\n3. API key validation happens at startup")
-            print("   ✅ API key validation works (tested at module import)")
+              print("\n✅ All error handling tests passed!")
+              return True
 
-            print("\n✅ All error handling tests passed!")
-            return True
+          if __name__ == "__main__":
+              success = asyncio.run(test_error_handling())
+              sys.exit(0 if success else 1)
+          EOF
 
-        if __name__ == "__main__":
-            success = asyncio.run(test_error_handling())
-            sys.exit(0 if success else 1)
-        EOF
+          uv run python test_errors.py
 
-        uv run python test_errors.py
+      - name: Test with multiple locations
+        env:
+          MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
+        run: |
+          # Test with various global locations
+          cat > test_locations.py << 'EOF'
+          import asyncio
+          import sys
+          from uk_weather_mcp import (
+              uk_weather_get_hourly_forecast,
+              WeatherForecastInput,
+              ResponseFormat
+          )
 
-    - name: Test with multiple locations
-      env:
-        MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
-      run: |
-        # Test with various global locations
-        cat > test_locations.py << 'EOF'
-        import asyncio
-        import sys
-        from uk_weather_mcp import (
-            uk_weather_get_hourly_forecast,
-            WeatherForecastInput,
-            ResponseFormat
-        )
+          async def test_locations():
+              """Test forecasts for various global locations."""
+              print("Testing various global locations...")
 
-        async def test_locations():
-            """Test forecasts for various global locations."""
-            print("Testing various global locations...")
+              locations = [
+                  ("London, UK", 51.5074, -0.1278),
+                  ("New York, USA", 40.7128, -74.0060),
+                  ("Tokyo, Japan", 35.6762, 139.6503),
+                  ("Sydney, Australia", -33.8688, 151.2093),
+                  ("Reykjavik, Iceland", 64.1466, -21.9426),
+              ]
 
-            locations = [
-                ("London, UK", 51.5074, -0.1278),
-                ("New York, USA", 40.7128, -74.0060),
-                ("Tokyo, Japan", 35.6762, 139.6503),
-                ("Sydney, Australia", -33.8688, 151.2093),
-                ("Reykjavik, Iceland", 64.1466, -21.9426),
-            ]
+              for name, lat, lon in locations:
+                  print(f"\nTesting {name} ({lat}, {lon})...")
+                  test_input = WeatherForecastInput(
+                      latitude=lat,
+                      longitude=lon,
+                      response_format=ResponseFormat.MARKDOWN
+                  )
 
-            for name, lat, lon in locations:
-                print(f"\nTesting {name} ({lat}, {lon})...")
-                test_input = WeatherForecastInput(
-                    latitude=lat,
-                    longitude=lon,
-                    response_format=ResponseFormat.MARKDOWN
-                )
+                  result = await uk_weather_get_hourly_forecast(test_input)
+                  if result.startswith("Error:"):
+                      print(f"   ❌ Failed: {result}")
+                      return False
+                  print(f"   ✅ Successfully retrieved forecast")
 
-                result = await uk_weather_get_hourly_forecast(test_input)
-                if result.startswith("Error:"):
-                    print(f"   ❌ Failed: {result}")
-                    return False
-                print(f"   ✅ Successfully retrieved forecast")
+              print("\n✅ All location tests passed!")
+              return True
 
-            print("\n✅ All location tests passed!")
-            return True
+          if __name__ == "__main__":
+              success = asyncio.run(test_locations())
+              sys.exit(0 if success else 1)
+          EOF
 
-        if __name__ == "__main__":
-            success = asyncio.run(test_locations())
-            sys.exit(0 if success else 1)
-        EOF
+          uv run python test_locations.py
 
-        uv run python test_locations.py
-
-    - name: Generate test report
-      if: always()
-      run: |
-        {
-          echo "## Test Summary"
-          echo ""
-          echo "✅ MCP server tests completed"
-          echo ""
-          echo "### Tests Run"
-          echo "- Python syntax validation"
-          echo "- Server initialization"
-          echo "- Tool functionality (all 3 forecast types)"
-          echo "- Error handling (invalid inputs)"
-          echo "- Multiple global locations"
-          echo ""
-          echo "### Environment"
-          echo "- Python: 3.12"
-          echo "- Runner: ubuntu-latest"
-          echo "- Package Manager: uv"
-        } >> "$GITHUB_STEP_SUMMARY"
+      - name: Generate test report
+        if: always()
+        run: |
+          {
+            echo "## Test Summary"
+            echo ""
+            echo "✅ MCP server tests completed"
+            echo ""
+            echo "### Tests Run"
+            echo "- Python syntax validation"
+            echo "- Server initialization"
+            echo "- Tool functionality (all 3 forecast types)"
+            echo "- Error handling (invalid inputs)"
+            echo "- Multiple global locations"
+            echo ""
+            echo "### Environment"
+            echo "- Python: 3.12"
+            echo "- Runner: ubuntu-latest"
+            echo "- Package Manager: uv"
+          } >> "$GITHUB_STEP_SUMMARY"

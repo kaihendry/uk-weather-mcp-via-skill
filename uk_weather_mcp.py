@@ -8,7 +8,7 @@ including hourly, 3-hourly, and daily forecasts for any global location.
 
 import os
 import json
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 from enum import Enum
 from datetime import datetime
 import httpx

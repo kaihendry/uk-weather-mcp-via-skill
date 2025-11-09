@@ -260,13 +260,14 @@ def _format_weather_markdown(data: Dict[str, Any], forecast_type: str) -> str:
     return "\n".join(lines)
 
 
-def _truncate_if_needed(content: str, data: Dict[str, Any]) -> str:
+def _truncate_if_needed(content: str, data: Dict[str, Any], is_json: bool = False) -> str:
     """
     Check response size and truncate if it exceeds CHARACTER_LIMIT.
 
     Args:
         content: Formatted response string
         data: Original data for truncation reference
+        is_json: Whether the content is JSON format
 
     Returns:
         str: Original or truncated content with truncation notice
@@ -274,7 +275,31 @@ def _truncate_if_needed(content: str, data: Dict[str, Any]) -> str:
     if len(content) <= CHARACTER_LIMIT:
         return content
 
-    # Truncate and add notice
+    # For JSON, truncate features array to keep it valid JSON
+    if is_json:
+        import json
+        try:
+            parsed = json.loads(content)
+            if "features" in parsed and len(parsed["features"]) > 0:
+                # Reduce time series data
+                feature = parsed["features"][0]
+                if "properties" in feature and "timeSeries" in feature["properties"]:
+                    time_series = feature["properties"]["timeSeries"]
+                    # Keep reducing until under limit
+                    for keep_count in [20, 10, 5, 1]:
+                        feature["properties"]["timeSeries"] = time_series[:keep_count]
+                        truncated_json = json.dumps(parsed, indent=2)
+                        if len(truncated_json) <= CHARACTER_LIMIT:
+                            return truncated_json
+                    # If still too big, return minimal structure
+                    return json.dumps({
+                        "error": "Response too large",
+                        "message": f"Forecast data exceeds {CHARACTER_LIMIT} character limit. Try requesting a shorter time period."
+                    }, indent=2)
+        except json.JSONDecodeError:
+            pass
+
+    # For Markdown, just truncate and add notice
     truncated = content[:CHARACTER_LIMIT]
     truncated += "\n\n---\n\n"
     truncated += f"**Response truncated** (exceeded {CHARACTER_LIMIT} character limit). "
@@ -358,11 +383,11 @@ async def uk_weather_get_hourly_forecast(params: WeatherForecastInput) -> str:
         # Format response based on requested format
         if params.response_format == ResponseFormat.MARKDOWN:
             result = _format_weather_markdown(data, "Hourly")
-            return _truncate_if_needed(result, data)
+            return _truncate_if_needed(result, data, is_json=False)
         else:
             # Machine-readable JSON format
             result = json.dumps(data, indent=2)
-            return _truncate_if_needed(result, data)
+            return _truncate_if_needed(result, data, is_json=True)
 
     except Exception as e:
         return _handle_api_error(e)
@@ -442,11 +467,11 @@ async def uk_weather_get_three_hourly_forecast(params: WeatherForecastInput) -> 
         # Format response based on requested format
         if params.response_format == ResponseFormat.MARKDOWN:
             result = _format_weather_markdown(data, "3-Hourly")
-            return _truncate_if_needed(result, data)
+            return _truncate_if_needed(result, data, is_json=False)
         else:
             # Machine-readable JSON format
             result = json.dumps(data, indent=2)
-            return _truncate_if_needed(result, data)
+            return _truncate_if_needed(result, data, is_json=True)
 
     except Exception as e:
         return _handle_api_error(e)
@@ -526,11 +551,11 @@ async def uk_weather_get_daily_forecast(params: WeatherForecastInput) -> str:
         # Format response based on requested format
         if params.response_format == ResponseFormat.MARKDOWN:
             result = _format_weather_markdown(data, "Daily")
-            return _truncate_if_needed(result, data)
+            return _truncate_if_needed(result, data, is_json=False)
         else:
             # Machine-readable JSON format
             result = json.dumps(data, indent=2)
-            return _truncate_if_needed(result, data)
+            return _truncate_if_needed(result, data, is_json=True)
 
     except Exception as e:
         return _handle_api_error(e)

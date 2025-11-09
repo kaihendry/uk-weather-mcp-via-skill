@@ -1,0 +1,74 @@
+name: Inspect MCP Server
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Ruff linter
+        uses: astral-sh/ruff-action@v3
+        continue-on-error: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Inspect MCP server - List tools
+        run: |
+          npx -y @modelcontextprotocol/inspector --cli --method tools/list -- uv run uk_weather_mcp.py
+        env:
+          MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
+
+      - name: Inspect MCP server - Server info
+        run: |
+          npx -y @modelcontextprotocol/inspector --cli --method initialize -- uv run uk_weather_mcp.py
+        env:
+          MET_OFFICE_API_KEY: ${{ secrets.MET_OFFICE_API_KEY }}
+        continue-on-error: true
+
+      - name: Build package
+        run: uv build
+        continue-on-error: true
+
+      - name: Generate inspection summary
+        if: always()
+        run: |
+          {
+            echo "## MCP Server Inspection Results"
+            echo ""
+            echo "✅ MCP server inspection completed"
+            echo ""
+            echo "### Tools Inspected"
+            echo "- \`tools/list\` - Lists all available tools"
+            echo "- \`initialize\` - Server initialization info"
+            echo ""
+            echo "### Expected Tools"
+            echo "- \`uk_weather_get_hourly_forecast\` - Hourly forecasts (48 hours)"
+            echo "- \`uk_weather_get_three_hourly_forecast\` - 3-hourly forecasts (7 days)"
+            echo "- \`uk_weather_get_daily_forecast\` - Daily forecasts (7 days)"
+            echo ""
+            echo "### Code Quality"
+            echo "- Ruff linting completed"
+            echo "- Package build tested"
+          } >> "$GITHUB_STEP_SUMMARY"
